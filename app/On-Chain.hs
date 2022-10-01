@@ -33,24 +33,22 @@ data royalties = Royalties {
     partnerPercentage :: (String, Float)
 } deriving Show, Generic
 
-PlutusTx.makeLift ''VestingTranche
-
 {-# INLINABLE redeemer #-}
-eitherRedeemer ::  -> ScriptContext -> Either Bool String
+eitherRedeemer :: String -> Maybe royalties -> ScriptContext -> Either Bool String
 eitherRedeemer datum redeemer _ = traceIfFalse "Invalid address supplied to redeemer!" (all isHexDigit address)
 redeemer 
 
 data Typed
 instance Scripts.ValidatorTypes Typed where
-    type instance DatumType Typed = Maybe royalties
-    type instance RedeemerType Typed = String
+    type instance DatumType Typed = String
+    type instance RedeemerType Typed = Maybe royalties
 
 typedValidator :: Scripts.TypedValidator Typed
 typedValidator = Scripts.mkTypedValidator @Typed 
                  $$(PlutusTx.compile [|| redeemer ||])
                  $$(PlutusTx.compile [|| wrap ||])
     where
-        wrap = Scripts.wrapValidator @String @Maybe royalties
+        wrap = Scripts.wrapValidator @Maybe royalties @String
 
 validator :: Validator
 validator = Scripts.validatorScript typedValidator
