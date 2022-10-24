@@ -25,6 +25,7 @@ import           Data.Text           (Text)
 import           Data.Void           (Void)
 import           Prelude             (IO, Semigroup (..), String)
 import           Text.Printf         (printf)
+import           On-Chain
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
@@ -54,6 +55,12 @@ validator :: Validator
 validator = Scripts.validatorScript typedValidator
 
 scrAddress :: Ledger.Address
+scrAddress = scriptAddress validator
+
+valHash :: Ledger.ValidatorHash
+valHash = Scripts.validatorHash validator
+
+scrAddress :: Ledger.scrAddress
 scrAddress = scriptAddress validator
 
 {-# INLINABLE  #-}

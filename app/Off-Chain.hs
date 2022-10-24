@@ -25,5 +25,15 @@ import           Data.Text           (Text)
 import           Data.Void           (Void)
 import           Prelude             (IO, Semigroup (..), String)
 import           Text.Printf         (printf)
+import           On-Chain
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
+
+type GiftSchema = 
+            Endpoint "give" Integer --an integer parameter
+        .\/ Endpoint "grab" ()
+
+give :: AsContractError e => Integer -> Contract w s e ()
+give amount = do
+    let tx = mustPayToOtherScript valHash (Datum $ Builtins.mkI 0) $ Ada.lovelaceValueOf amount
+    
