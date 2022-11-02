@@ -32,33 +32,31 @@ import OffChain
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-data Royalties = Royalties {
+data Royalties = Royalties {(
     walletAddress :: String
     , percentage :: Float
-} deriving (Show, JSON.FromJSON)
+)} deriving (Show, JSON.FromJSON)
 
 {-# INLINABLE redeemer #-}
-doubleRedeemer :: JSON.Value -> Bool
-doubleRedeemer _ redeemer _ = traceIfFalse "Tx must include Merchify" txSignedBy
-                              traceIfFalse "Royalties not formatted properly" royaltyCheck redeemer 
+jsonRedeemer :: JSON.Value -> Bool
+jsonRedeemer _ redeemer _ = traceIfFalse "Royalties not formatted properly" royaltyCheck redeemer
 
 {-# INLINABLE txSignedBy #-}
-txSignedBy :: TxInfo -> PubKeyHash -> Bool
-txSignedBy TxInfo{txInfoSignatories} = let m = "Merchify wallet pubkey hash goes here" in 
-    case find ((==) m) txInfoSignatories of
-        Just _  -> True
-        Nothing -> False
+txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
+txSignedBy TxInfo{txInfoSignatories} = let m = "server wallet pubkey hash goes here" in 
+    | find ((==) m) txInfoSignatories
+    | otherwise = trace "Tx must include server wallet"
 
 data Typed
 instance Scripts.ValidatorTypes Typed where
-    type instance RedeemerType Typed = Royalties
+    type instance RedeemerType Typed = [Royalties]
 
 typedValidator :: Scripts.TypedValidator Typed
 typedValidator = Scripts.mkTypedValidator @Typed 
                  $$(PlutusTx.compile [|| redeemer ||])
                  $$(PlutusTx.compile [|| wrap ||])
     where
-        wrap = Scripts.wrapValidator @Royalties --post-Vasil is mkUntypedValidator
+        wrap = Scripts.wrapValidator @[Royalties] --post-Vasil is mkUntypedValidator
 
 validator :: Validator
 validator = Scripts.validatorScript typedValidator
