@@ -8,6 +8,7 @@ How it works (chronological):
     1d. Tx signed by server wallet
 2. SC recieves funds
 3. Validation process checks for 1c and 1d, and checks to make sure the redeemer is formatted properly and all %s provided add up to 100%
+    3a. If validation process fails, SC constructs and sends tx returning the ada amount, minus fees, to the server wallet w/error msg.
 4. SC calculates ada amounts due to each party
 5. SC constructs and sends Tx w following parameters:
     5a. SC script address as input

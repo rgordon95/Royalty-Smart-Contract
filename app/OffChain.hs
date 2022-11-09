@@ -30,11 +30,14 @@ import Data.Void                      (Void)
 import Prelude                        (IO, Semigroup (..), String)
 import Text.Printf                    (printf)
 
-import OnChain
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-instance FromJSON royalties where
+data Royalties = Royalties {walletAddress :: String,
+                            percentage :: Float} 
+                            deriving (Show, FromJSON)
+
+instance FromJSON Royalties where
     parseJSON (Object v) =  Royalties
         <$> v .: "walletAddress"
         <*> v .: "percentage"
@@ -42,22 +45,23 @@ instance FromJSON royalties where
         (typeMismatch "Object" invalid)
 
 data GiveParams = GP {payments :: [Royalties]}
-                     , deriving (Generic, ToSchema)
+                     deriving (Generic, ToSchema)
 
 type GiftSchema = 
             Endpoint "give" GiveParams
-        -- .\/ Endpoint "grab" ()
+        .\/ Endpoint "giveBack" ()
 
-multiPayBuild :: GiveParams -> TxConstraints
+multiPayBuild :: GiveParams -> ScriptContext -> TxConstraints
 multiPayBuild (GP (payment : payments)) = 
-    (mustPayToPubKeyAddress (fst payment) (Datum $ Builtins.mkI 0) $ Ada.lovelaceValueOf $ percToAda (snd payment)) tx payments
-    where percToAda perc = totalAdaAmnt * (perc * .01)
+    (mustPayToPubKeyAddress (fst payment) (Datum $ Builtins.mkI 0) $ Ada.lovelaceValueOf $ percToAda (snd payment)) : multiPayBuild payments
+    where percToAda perc = totalAdaAmnt sctx * (perc * 0.01)
 
-totalAdaAmnt :: TxInfo -> TxOut -> Value
+totalAdaAmnt :: TxInfo -> TxOut -> Int
 totalAdaAmnt TxInfo{txInfoOutputs} = case find txInfoOutputs of
-    a@TxOut {txOutValue} -> logInfo @String $ printf "Recieved a total of %d lovelace" a >> 
-    --still need to figure out how to save the ada amount sent to the scr addr as an Int to use for royalty calculations. Also figure out if this fx needs to be inlinable.
-    _ -> print "Failure retrieving total recieved ADA amount"
+    a@TxOut {txOutValue} -> logInfo @String $ printf "Recieved a total of %d lovelace" a >> return (a :: Int)
+    _ -> print "Failure retrieving total recieved ADA amount" >> giveBack
+    --still need to figure out how to save the ada amount sent to the scr addr as an Int to use for royalty calculations. 
+    --Also figure out if this fx needs to be inlinable.
 
 give :: AsContractError e => GiveParams -> Contract w s e ()
 give (GP payments) = do
@@ -67,6 +71,34 @@ give (GP payments) = do
     logInfo @String $ printf "distributed a total of %d lovelace to %d wallets" sumAda sumWal
         where sumAda = fmap sum (fst payments)
               sumWal = fmap count (snd payments) --this might throw an error, may have to do explicit recursion
+
+giveBack :: AsContractError e => GiveParams -> Contract w s e ()
+giveBack = do
+    --used in case validation process fails, this fx will return the ada value sent to it back to the sender, minus fees
+
+endpoints :: Contract () GiftSchema Text ()
+endpoints = awaitPromise (give' `select` grab') >> endpoints
+    where
+        give' = endpoint @"give" give
+        giveBack' = endpoint @"giveBack" $ giveBack
+
+royaltyCheck :: Value -> Maybe [Royalties] -> IO (Bool)                          --decodes JSON and pulls the info 
+royaltyCheck redeemer = do                                      --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
+    contents <- decode (readFile redeemer) :: Maybe [Royalties]
+    case contents of                               
+        Just contents -> case checkValues contents of
+            True -> logInfo @String $ printf "validation completed, tx construction in proccess with the following parties as outputs..." >> mapM_ print contents >> give contents
+            False -> logInfo @String $ printf "Royalties don't add up to 100%, returning funds..." >> False >> giveBack
+        _ -> logInfo @String $ printf "Royalties not formatted properly, returning funds..." >> print contents >> False >> giveBack
+    
+checkValues :: Maybe [Royalties] -> Bool
+checkValues [] = Nothing
+checkValues contents = 
+    let adding = foldl (\x (a,b) -> x + b) 0 in 
+        adding contents == 100.0
+
+mkSchemaDefinitions ''GiftSchema
+mkKnownCurrencies [] --Playground specific, allows tADA or any custom defined asset to be used in simulations
 
 -- grab :: forall w s e. AsContractError e => Contract w s e ()
 -- grab = do
@@ -79,29 +111,3 @@ give (GP payments) = do
 
 --     ledgerTx <- submitTxConstraintsWith @Void lookups tx
 --     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
-
-endpoints :: Contract () GiftSchema Text ()
-endpoints = awaitPromise (give' `select` grab') >> endpoints
-    where
-        give' = endpoint @"give" give
-        -- grab' = endpoint @"grab" $ const grab
-
-royaltyCheck :: Value -> Maybe [Royalties] -> IO (Bool)                          --decodes JSON and pulls the info 
-royaltyCheck redeemer = do                                      --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
-    contents <- decode (readFile redeemer) :: Maybe [Royalties]
-    case contents of                               
-        Just contents -> checkValues contents >> mapM_ print (outputs :: [Royalties])
-        _ -> print contents >> False
-    
-    
-checkValues :: Maybe [Royalties] -> Bool
-checkValues contents = do
-
-
-
--- if map . sum $ snd $ contents = 100 then True else False
-
-
-
-mkSchemaDefinitions ''GiftSchema
-mkKnownCurrencies [] --Playground specific, allows tADA or any custom defined asset to be used in simulations

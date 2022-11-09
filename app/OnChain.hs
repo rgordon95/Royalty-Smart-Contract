@@ -28,24 +28,29 @@ import Data.Void                      (Void)
 import Prelude                        (IO, Semigroup (..), String)
 import Text.Printf                    (printf)
 
-import OffChain
+import OffChain                       (royaltyCheck, giveBack)
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-data Royalties = Royalties {(
-    walletAddress :: String
-    , percentage :: Float
-)} deriving (Show, JSON.FromJSON)
+data Royalties = Royalties {walletAddress :: String,
+                            percentage :: Float} 
+                            deriving (Show, FromJSON)
 
-{-# INLINABLE redeemer #-}
-jsonRedeemer :: JSON.Value -> Bool
-jsonRedeemer _ redeemer _ = traceIfFalse "Royalties not formatted properly" royaltyCheck redeemer
+{-# INLINABLE mkRedeemer #-}
+mkRedeemer :: JSON.Value -> ScriptContext -> Bool
+mkRedeemer _ redeemer sctx = traceIfFalse "Tx must include server wallet" txSignedBy sctx
+                             traceIfFalse "Royalty information incorrect, please reference above error msg" royaltyCheck redeemer                 
 
 {-# INLINABLE txSignedBy #-}
 txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
-txSignedBy TxInfo{txInfoSignatories} = let m = "server wallet pubkey hash goes here" in 
-    | find ((==) m) txInfoSignatories
-    | otherwise = trace "Tx must include server wallet"
+txSignedBy TxInfo{txInfoSignatories} = let m = toPubKeyHash merchifyAdaAddress in 
+    case find ((==) m) txInfoSignatories of
+        True -> Nothing
+        False -> giveBack 
+
+{-# INLINABLE merchifyAdaAddress #-}
+merchifyAdaAddress :: Address
+merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
 data Typed
 instance Scripts.ValidatorTypes Typed where
@@ -53,7 +58,7 @@ instance Scripts.ValidatorTypes Typed where
 
 typedValidator :: Scripts.TypedValidator Typed
 typedValidator = Scripts.mkTypedValidator @Typed 
-                 $$(PlutusTx.compile [|| redeemer ||])
+                 $$(PlutusTx.compile [|| mkRedeemer ||])
                  $$(PlutusTx.compile [|| wrap ||])
     where
         wrap = Scripts.wrapValidator @[Royalties] --post-Vasil is mkUntypedValidator
