@@ -13,3 +13,4 @@ How it works (chronological):
 5. SC constructs and sends Tx w following parameters:
     5a. SC script address as input
     5b. All parties specified in redeemer as outputs
+

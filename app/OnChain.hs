@@ -1,15 +1,26 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE DeriveGeneric  #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module OnChain where
 
 import PlutusTx                       (Data (..))
 import PlutusTx                       qualified
 import PlutusTx.Prelude               hiding (Semigroup(..), unless)
-import PlutusTx.Builtins              qualified   as Builtins
+import PlutusTx.Builtins              qualified as Builtins
 
 import Ledger                         hiding (singleton)
 import Ledger.Constraints             (TxConstraints)
-import Ledger.Constraints             qualified  as Constraints
+import Ledger.Constraints             qualified as Constraints
 import Plutus.Script.Utils.V1.Scripts qualified as Scripts --pre-Vasil is Ledger.Typed.Scripts
 import Ledger.Ada                     as Ada
 
@@ -17,10 +28,10 @@ import Playground.Contract            (printJson, printSchemas, ensureKnownCurre
 import Playground.TH                  (mkKnownCurrencies, mkSchemaDefinitions)
 import Playground.Types               (KnownCurrency (..))
 
--- import Plutus.Contract
+import Plutus.Contract
 
 import Control.Monad                  hiding (fmap)
-import Data.Aeson                     as JSON
+import Data.Aeson                     
 import GHC.Generics                   (Generic)   
 import Data.Map                       as Map
 import Data.Text                      (Text)
@@ -28,7 +39,7 @@ import Data.Void                      (Void)
 import Prelude                        (IO, Semigroup (..), String)
 import Text.Printf                    (printf)
 
-import OffChain                       (royaltyCheck, giveBack)
+import OffChain                       (royaltyCheck, giveBack, totalAdaAmnt)
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
@@ -37,20 +48,21 @@ data Royalties = Royalties {walletAddress :: String,
                             deriving (Show, FromJSON)
 
 {-# INLINABLE mkRedeemer #-}
-mkRedeemer :: JSON.Value -> ScriptContext -> Bool
-mkRedeemer _ redeemer sctx = traceIfFalse "Tx must include server wallet" txSignedBy sctx
-                             traceIfFalse "Royalty information incorrect, please reference above error msg" royaltyCheck redeemer                 
+mkRedeemer :: Value -> ScriptContext -> Bool
+mkRedeemer _ redeemer sctx = traceIfFalse "Tx must include server wallet" txSignedBy sctx >>
+                             traceIfFalse "Royalty information incorrect, please reference above error msg" royaltyCheck redeemer >>
+                             totalAdaAmnt sctx
 
 {-# INLINABLE txSignedBy #-}
 txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
-txSignedBy TxInfo{txInfoSignatories} = let m = toPubKeyHash merchifyAdaAddress in 
+txSignedBy TxInfo{txInfoSignatories} = let m = merchifyAdaAddress in 
     case find ((==) m) txInfoSignatories of
         True -> Nothing
-        False -> giveBack 
+        False -> False 
 
 {-# INLINABLE merchifyAdaAddress #-}
 merchifyAdaAddress :: Address
-merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
+merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
 data Typed
 instance Scripts.ValidatorTypes Typed where
