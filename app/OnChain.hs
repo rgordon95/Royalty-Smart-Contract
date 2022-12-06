@@ -57,7 +57,7 @@ mkRedeemer _ redeemer sctx = traceIfFalse "Tx must include server wallet" txSign
 txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
 txSignedBy TxInfo{txInfoSignatories} = let m = merchifyAdaAddress in 
     case find ((==) m) txInfoSignatories of
-        True -> Nothing
+        True -> True
         False -> False 
 
 {-# INLINABLE merchifyAdaAddress #-}
