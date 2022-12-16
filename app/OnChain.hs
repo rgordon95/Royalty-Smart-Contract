@@ -13,13 +13,11 @@
 
 module OnChain where
 
-import PlutusTx                       (Data (..))
 import PlutusTx                       qualified
 import PlutusTx.Prelude               hiding (Semigroup(..), unless)
 import PlutusTx.Builtins              qualified as Builtins
 
 import Ledger                         hiding (singleton)
-import Ledger.Constraints             (TxConstraints)
 import Ledger.Constraints             qualified as Constraints
 import Plutus.Script.Utils.V1.Scripts qualified as Scripts --pre-Vasil is Ledger.Typed.Scripts
 import Ledger.Ada                     as Ada
@@ -29,6 +27,9 @@ import Playground.TH                  (mkKnownCurrencies, mkSchemaDefinitions)
 import Playground.Types               (KnownCurrency (..))
 
 import Plutus.Contract
+
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Short as BSS
 
 import Control.Monad                  hiding (fmap)
 import Data.Aeson                     
@@ -47,42 +48,43 @@ data Royalties = Royalties {walletAddress :: String,
                             percentage :: Float} 
                             deriving (Show, FromJSON)
 
-{-# INLINABLE mkRedeemer #-}
-mkRedeemer :: Value -> ScriptContext -> Bool
-mkRedeemer _ redeemer sctx = traceIfFalse "Tx must include server wallet" txSignedBy sctx >>
+makeLift ''Royalties
+makeIsDataIndexed ''Royalties [('Royalties, 0)]
+
+{-# INLINABLE nftRoyaltyValidator #-}
+nftRoyaltyValidator :: BuiltInData -> ScriptContext -> Bool
+nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server wallet" txSignedBy sctx >>
                              traceIfFalse "Royalty information incorrect, please reference above error msg" royaltyCheck redeemer >>
                              totalAdaAmnt sctx
+        where
+            txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
+            txSignedBy TxInfo{txInfoSignatories} = let m = merchifyAdaAddress in 
+                find (m ==) txInfoSignatories
 
-{-# INLINABLE txSignedBy #-}
-txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
-txSignedBy TxInfo{txInfoSignatories} = let m = merchifyAdaAddress in 
-    case find ((==) m) txInfoSignatories of
-        True -> True
-        False -> False 
+            merchifyAdaAddress :: Address
+            merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
-{-# INLINABLE merchifyAdaAddress #-}
-merchifyAdaAddress :: Address
-merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
+-- data Typed
+-- instance Scripts.ValidatorTypes Typed where
+--     type instance RedeemerType Typed = [Royalties]
 
-data Typed
-instance Scripts.ValidatorTypes Typed where
-    type instance RedeemerType Typed = [Royalties]
-
-typedValidator :: Scripts.TypedValidator Typed
-typedValidator = Scripts.mkTypedValidator @Typed 
-                 $$(PlutusTx.compile [|| mkRedeemer ||])
-                 $$(PlutusTx.compile [|| wrap ||])
+royaltyValidator :: Scripts.Validator 
+royaltyValidator = Scripts.mkValidatorScript 
+                 $$(PlutusTx.compile [||royaltyWrapped||])                 
     where
-        wrap = Scripts.wrapValidator @[Royalties] --post-Vasil is mkUntypedValidator
+        royaltyWrapped = wrap nftRoyaltyValidator
 
 validator :: Validator
-validator = Scripts.validatorScript typedValidator
+validator = Scripts.validatorScript royaltyValidator
 
 scrAddress :: Ledger.Address
 scrAddress = scriptAddress validator
 
 valHash :: Ledger.ValidatorHash
 valHash = Scripts.validatorHash validator
+
+serialized :: PlutusScript PlutusScriptV1
+serialized = PlutusScriptSerialised . BSS.toShort . BSL.toStrict . serialise $ royaltyValidator
 
 -- scrAddress :: Ledger.scrAddress
 -- scrAddress = scriptAddress validator
