@@ -13,13 +13,11 @@
 
 module OffChain where
 
-import PlutusTx                       (Data (..))
 import PlutusTx                       qualified
 import PlutusTx.Prelude               hiding (Semigroup(..), unless)
 import PlutusTx.Builtins              qualified as Builtins
 
 import Ledger                         hiding (singleton)
-import Ledger.Constraints             (TxConstraints)
 import Ledger.Constraints             qualified as Constraints
 import Plutus.Script.Utils.V1.Scripts qualified as Scripts --pre-Vasil is Ledger.Typed.Scripts
 import Ledger.Ada                     as Ada
@@ -61,7 +59,7 @@ type GiftSchema =
         .\/ Endpoint "giveBack" ()
         .\/ Endpoint "grab" ()
 
-multiPayBuild :: GiveParams -> TxConstraints
+multiPayBuild :: GiveParams -> Constraints.TxConstraints
 multiPayBuild (GP (payment : payments)) = 
     (mustPayToPubKeyAddress (fst payment) (Datum $ Builtins.mkI 0) $ Ada.lovelaceValueOf $ percToAda (snd payment)) : multiPayBuild payments
 
@@ -96,7 +94,7 @@ grab = do
     let orefs   = fst <$> Map.toList utxos                                                           -- This get all the references of the UTXOs
         lookups = Constraints.unspentOutputs utxos      <>                                           -- Tell where to find all the UTXOS
                   Constraints.otherScript validator                                                  -- and inform about the actual validator (the spending tx needs to provide the actual validator)
-        tx :: TxConstraints Void Void                                                            
+        tx :: Constraints.TxConstraints Void Void                                                            
         tx      = mconcat [mustSpendScriptOutput oref $ Redeemer $ Builtins.mkI 17 | oref <- orefs]  -- Define the TX giving constrains, one for each UTXO sitting on this addrs,
                                                                                                      -- must provide a redeemer (ignored in this case)
     ledgerTx <- submitTxConstraintsWith @Void lookups tx                                             -- Allow the wallet to construct the tx with the necesary information
@@ -136,7 +134,7 @@ merchifyAdaAddress :: Address
 merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
 mkSchemaDefinitions ''GiftSchema
-mkKnownCurrencies [] --Playground specific, allows tADA or any custom defined asset to be used in simulations
+-- mkKnownCurrencies [] --Playground specific, allows tADA or any custom defined asset to be used in simulations
 
 -- grab :: forall w s e. AsContractError e => Contract w s e ()
 -- grab = do
@@ -144,7 +142,7 @@ mkKnownCurrencies [] --Playground specific, allows tADA or any custom defined as
 --     let orefs   = fst <$> Map.toList utxos
 --         lookups = Constraints.unspentOutputs utxos  <>
 --                   Constraints.otherScript validator
---         tx :: TxConstraints Void Void
+--         tx :: Constraints.TxConstraints Void Void
 --         tx = mconcat [mustSpendScriptOutput oref $ arbitrary redeemer # | oref <- orefs]
 
 --     ledgerTx <- submitTxConstraintsWith @Void lookups tx
