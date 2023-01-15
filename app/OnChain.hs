@@ -68,7 +68,7 @@ nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server walle
 -- instance Scripts.ValidatorTypes Typed where
 --     type instance RedeemerType Typed = [Royalties]
 
-royaltyValidator :: Scripts.Validator 
+royaltyValidator :: Scripts.Validator -- do we actually need a typed validator? is this a typed validator?
 royaltyValidator = Scripts.mkValidatorScript 
                  $$(PlutusTx.compile [||royaltyWrapped||])                 
     where
@@ -86,5 +86,8 @@ valHash = Scripts.validatorHash validator
 serialized :: PlutusScript PlutusScriptV1
 serialized = PlutusScriptSerialised . BSS.toShort . BSL.toStrict . serialise $ royaltyValidator
 
--- scrAddress :: Ledger.scrAddress
--- scrAddress = scriptAddress validator
+writeSerialized :: IO ()
+writeSerialized = void $ writeFileTextEnvelope "testnet/RSCV2.plutus" Nothing serialized
+
+writeUnit :: IO ()
+writeUnit = writeJSON "testnet/unit.json" ()
