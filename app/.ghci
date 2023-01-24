@@ -1,0 +1,6 @@
+:set -package aeson
+:set -package containers
+:set -package text
+:set -package plutus-tx
+:set -package plutus-ledger
+:set -package plutus-core

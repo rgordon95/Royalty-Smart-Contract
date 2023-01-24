@@ -22,10 +22,6 @@ import Ledger.Constraints             qualified as Constraints
 import Plutus.Script.Utils.V1.Scripts qualified as Scripts --pre-Vasil is Ledger.Typed.Scripts
 import Ledger.Ada                     as Ada
 
-import Playground.Contract            (printJson, printSchemas, ensureKnownCurrencies, stage, ToSchema)
-import Playground.TH                  (mkKnownCurrencies, mkSchemaDefinitions)
-import Playground.Types               (KnownCurrency (..))
-
 import Plutus.Contract
 
 import qualified Data.ByteString.Lazy as BSL
@@ -40,11 +36,11 @@ import Data.Void                      (Void)
 import Prelude                        (IO, Semigroup (..), String)
 import Text.Printf                    (printf)
 
-import OffChain                       (royaltyCheck, giveBack, totalAdaAmnt)
+import OffChain                       (royaltyCheck, giveBack)
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-data Royalties = Royalties {walletAddress :: String,
+data Royalties = Royalties {walletAddress :: Address,
                             percentage :: Float} 
                             deriving (Show, FromJSON)
 
@@ -59,14 +55,14 @@ nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server walle
         where
             txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
             txSignedBy TxInfo{txInfoSignatories} = let m = merchifyAdaAddress in 
-                find (m ==) txInfoSignatories
+                elem m txInfoSignatories
+
+            info = scriptContextTxInfo sctx in
+                totalAdaAmnt :: TxInfo -> TxOut -> Integer
+                totalAdaAmnt = foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)            --wrap this in Contract w so it can be passed to any endpoint
 
             merchifyAdaAddress :: Address
             merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
-
--- data Typed
--- instance Scripts.ValidatorTypes Typed where
---     type instance RedeemerType Typed = [Royalties]
 
 royaltyValidator :: Scripts.Validator -- do we actually need a typed validator? is this a typed validator?
 royaltyValidator = Scripts.mkValidatorScript 

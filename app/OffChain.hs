@@ -22,10 +22,6 @@ import Ledger.Constraints             qualified as Constraints
 import Plutus.Script.Utils.V1.Scripts qualified as Scripts --pre-Vasil is Ledger.Typed.Scripts
 import Ledger.Ada                     as Ada
 
-import Playground.Contract            (printJson, printSchemas, ensureKnownCurrencies, stage, ToSchema)
-import Playground.TH                  (mkKnownCurrencies, mkSchemaDefinitions)
-import Playground.Types               (KnownCurrency (..))
-
 import Plutus.Contract
 
 import Control.Monad                  hiding (fmap)
@@ -40,7 +36,7 @@ import Text.Printf                    (printf)
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-data Royalties = Royalties {walletAddress :: String,
+data Royalties = Royalties {walletAddress :: Address,
                             percentage :: Float}
                             deriving (Show, FromJSON)
 
@@ -52,11 +48,7 @@ instance FromJSON Royalties where
         (typeMismatch "Object" invalid)
 
 newtype GiveParams = GP {payments :: [Royalties]}
-                     deriving (Generic, ToSchema)
-
-type GiftSchema =
-            Endpoint "give" GiveParams
-        .\/ Endpoint "giveBack" ()
+                     deriving (Generic)
 
 multiPayBuild :: GiveParams -> Constraints.TxConstraints
 multiPayBuild (GP (payment : payments)) =
@@ -64,13 +56,6 @@ multiPayBuild (GP (payment : payments)) =
 
 percToAda :: Float -> Int
 percToAda perc = totalAdaAmnt * (perc * 0.01)
-
---wrap this in Contract w so it can be passed to any endpoint
--- redo this fxn to get tx outs from previous tx
-totalAdaAmnt :: TxInfo -> TxOut -> Integer
-totalAdaAmnt TxInfo{txInfoOutputs} = case find txInfoOutputs of
-    a@TxOut {txOutValue} -> logInfo @String $ printf "Recieved a total of %d lovelace" a >> return (a :: Integer)
-    _ -> print "Failure retrieving total recieved ADA amount" >> returnChoice
 
 give :: AsContractError e => GiveParams -> Contract w s e () --unlock
 give (GP payments) = do
@@ -88,14 +73,8 @@ giveBack = do     --user initiated, this fx will return the ada value sent to it
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "made a gift of %d lovelace" amount
 
-endpoints :: Contract () GiftSchema Text () --study and understand why this fx is necessary and what it really does
-endpoints = awaitPromise (give' `select` giveBack') >> endpoints
-    where
-        give' = endpoint @"give" give
-        giveBack' = endpoint @"giveBack" giveBack
-
 royaltyCheck :: Value -> Maybe [Royalties] -> Maybe IO Bool                          --decodes JSON and pulls the info 
-royaltyCheck redeemer = do                                      --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
+royaltyCheck redeemer = do           --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
     contents <- decode (readFile redeemer) :: Maybe [Royalties]
     case contents of --what's the difference between logInfo @type, printf, print, and putStrLn? And why is mapM_ being used instead of mapM or map?
         Just contents -> if checkValues contents then logInfo @String $ printf "validation completed, tx construction in proccess with the following parties as outputs..." >> mapM_ print contents >> give contents
@@ -121,9 +100,6 @@ returnChoice = do
 
 merchifyAdaAddress :: Address
 merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
-
-mkSchemaDefinitions ''GiftSchema
--- mkKnownCurrencies [] --Playground specific, allows tADA or any custom defined asset to be used in simulations
 
 -- grab :: AsContractError e => GiveParams -> Contract w s e () --not necessary in current implementation
 -- grab = do
