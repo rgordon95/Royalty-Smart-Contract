@@ -31,6 +31,6 @@ executable Royalty-Smart-Contract
 
     -- LANGUAGE extensions used by modules in this package.
     other-extensions: DataKinds, FlexibleContexts, NoImplicitPrelude, ScopedTypeVariables, TemplateHaskell, TypeApplications, TypeFamilies, TypeOperators, OverloadedStrings, ImportQualifiedPost
-    build-depends:    base ^>=4.14.1.0, aeson, containers, text, plutus-tx, plutus-ledger, plutus-core
+    build-depends:    base ^>=4.14.1.0, aeson, containers, text, plutus-tx, plutus-ledger, plutus-ledger-constraints, plutus-core, plutus-script-utils, plutus-contract
     hs-source-dirs:   app
     default-language: Haskell2010

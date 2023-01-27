@@ -33,10 +33,10 @@ import GHC.Generics                   (Generic)
 import Data.Map                       as Map
 import Data.Text                      (Text)
 import Data.Void                      (Void)
-import Prelude                        (IO, Semigroup (..), String)
+import Prelude                        (IO, Semigroup (..), String, Float, Show, Int)
 import Text.Printf                    (printf)
 
-import OffChain                       (royaltyCheck, giveBack)
+import OffChain                       (royaltyCheck)
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
@@ -59,7 +59,7 @@ nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server walle
 
             info = scriptContextTxInfo sctx in
                 totalAdaAmnt :: TxInfo -> TxOut -> Integer
-                totalAdaAmnt = foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)            --wrap this in Contract w so it can be passed to any endpoint
+                totalAdaAmnt = foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)    --wrap this in Contract w so it can be passed to any endpoint
 
             merchifyAdaAddress :: Address
             merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"

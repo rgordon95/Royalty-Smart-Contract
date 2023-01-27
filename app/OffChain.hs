@@ -30,7 +30,7 @@ import GHC.Generics                   (Generic)
 import Data.Map                       as Map
 import Data.Text                      (Text)
 import Data.Void                      (Void)
-import Prelude                        (IO, Semigroup (..), String)
+import Prelude                        (IO, Semigroup (..), String, Float, Show, Int)
 import Text.Printf                    (printf)
 
 
@@ -38,7 +38,7 @@ import Text.Printf                    (printf)
 
 data Royalties = Royalties {walletAddress :: Address,
                             percentage :: Float}
-                            deriving (Show, FromJSON)
+                            deriving (Show, Generic)
 
 instance FromJSON Royalties where
     parseJSON (Object v) =  Royalties
@@ -64,7 +64,7 @@ give (GP payments) = do
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "distributed a total of %d lovelace to %d wallets" sumAda sumWal
         where sumAda = sndList $ percToAda $ snd payments
-              sumWal = length $ map fst payments
+              sumWal = length $ PlutusTx.Prelude.map fst payments
 
 giveBack :: AsContractError e => GiveParams -> Contract w s e () --abort
 giveBack = do     --user initiated, this fx will return the ada value sent to it over to the server wallet, minus fees
@@ -73,11 +73,11 @@ giveBack = do     --user initiated, this fx will return the ada value sent to it
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "made a gift of %d lovelace" amount
 
-royaltyCheck :: Value -> Maybe [Royalties] -> Maybe IO Bool                          --decodes JSON and pulls the info 
+royaltyCheck :: Data.Aeson.Value -> Maybe [Royalties] -> Maybe IO (Bool)                          --decodes JSON and pulls the info 
 royaltyCheck redeemer = do           --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
     contents <- decode (readFile redeemer) :: Maybe [Royalties]
     case contents of --what's the difference between logInfo @type, printf, print, and putStrLn? And why is mapM_ being used instead of mapM or map?
-        Just contents -> if checkValues contents then logInfo @String $ printf "validation completed, tx construction in proccess with the following parties as outputs..." >> mapM_ print contents >> give contents
+        Just contents -> if checkValues contents then logInfo @String $ printf "validation completed, tx construction in proccess with the following parties as outputs..." >> PlutusTx.Prelude.mapM_ print contents >> give contents
             else logInfo @String $ printf "Royalties don't add up to 100%" >> False >> returnChoice
         _ -> logInfo @String $ printf "Royalties not formatted properly" >> print contents >> False >> returnChoice
 
@@ -86,10 +86,10 @@ checkValues [] = Nothing
 checkValues contents = sndList contents == 100.0
 
 count :: Eq a => a -> [a] -> Int
-count x =  length . filter (==x)
+count x =  length . Map.filter (==x)
 
 sndList :: [Royalties] -> percentage
-sndList = foldl (\x (a,b) -> x + b) 0
+sndList = Map.foldl (\x (a,b) -> x + b) 0
 
 returnChoice :: IO ()
 returnChoice = do
