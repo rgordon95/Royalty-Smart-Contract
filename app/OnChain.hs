@@ -11,7 +11,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module OnChain where
+module OnChain (totalAdaAmnt) where
 
 import PlutusTx                       qualified
 import PlutusTx.Prelude               hiding (Semigroup(..), unless)
@@ -57,14 +57,15 @@ nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server walle
             txSignedBy TxInfo{txInfoSignatories} = let m = merchifyAdaAddress in 
                 elem m txInfoSignatories
 
-            info = scriptContextTxInfo sctx in
-                totalAdaAmnt :: TxInfo -> TxOut -> Integer
-                totalAdaAmnt = foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)    --wrap this in Contract w so it can be passed to any endpoint
+            info = scriptContextTxInfo sctx
+            
+            totalAdaAmnt :: TxInfo -> TxOut -> Integer
+            totalAdaAmnt = foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)    --wrap this in Contract w so it can be passed to any endpoint
 
             merchifyAdaAddress :: Address
             merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
-royaltyValidator :: Scripts.Validator -- do we actually need a typed validator? is this a typed validator?
+royaltyValidator :: Scripts.Validator
 royaltyValidator = Scripts.mkValidatorScript 
                  $$(PlutusTx.compile [||royaltyWrapped||])                 
     where

@@ -19,20 +19,22 @@ import PlutusTx.Builtins              qualified as Builtins
 
 import Ledger                         hiding (singleton)
 import Ledger.Constraints             qualified as Constraints
-import Plutus.Script.Utils.V1.Scripts qualified as Scripts --pre-Vasil is Ledger.Typed.Scripts
+import Plutus.Script.Utils.V1.Scripts qualified as Scripts
+import Ledger.Typed.Scripts
 import Ledger.Ada                     as Ada
+import Ledger.Value
 
 import Plutus.Contract
 
 import Control.Monad                  hiding (fmap)
 import Data.Aeson
+import Data.Aeson.Types
 import GHC.Generics                   (Generic)
 import Data.Map                       as Map
 import Data.Text                      (Text)
 import Data.Void                      (Void)
-import Prelude                        (IO, Semigroup (..), String, Float, Show, Int)
+import Prelude                        (IO, Semigroup (..), String, Float, Show, Int, readFile, print, getChar)
 import Text.Printf                    (printf)
-
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
@@ -50,11 +52,15 @@ instance FromJSON Royalties where
 newtype GiveParams = GP {payments :: [Royalties]}
                      deriving (Generic)
 
-multiPayBuild :: GiveParams -> Constraints.TxConstraints
-multiPayBuild (GP (payment : payments)) =
-    mustPayToPubKeyAddress (fst payment) (Datum $ Builtins.mkI 0) (Ada.lovelaceValueOf $ percToAda (snd payment)) : multiPayBuild payments
+totalAdaAmnt :: TxInfo -> TxOut -> Integer
+totalAdaAmnt = let info = scriptContextTxInfo sctx in
+    Map.foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)
 
-percToAda :: Float -> Int
+multiPayBuild :: GiveParams -> Constraints.TxConstraints i o
+multiPayBuild (GP (payment : payments)) =
+    Constraints.mustPayToPubKeyAddress (walletAddress) () (Ada.lovelaceValueOf $ percToAda (percentage)) : multiPayBuild payments
+
+percToAda :: Float -> Integer
 percToAda perc = totalAdaAmnt * (perc * 0.01)
 
 give :: AsContractError e => GiveParams -> Contract w s e () --unlock
@@ -68,38 +74,40 @@ give (GP payments) = do
 
 giveBack :: AsContractError e => GiveParams -> Contract w s e () --abort
 giveBack = do     --user initiated, this fx will return the ada value sent to it over to the server wallet, minus fees
-    let tx = mustPayToPubKeyAddress merchifyAdaAddress (Datum $ Builtins.mkI 0) $ Ada.lovelaceValueOf totalAdaAmnt --if the error originated with this last fx, this will create an infinite loop. Fix!
+    let a = totalAdaAmnt
+    let tx = Constraints.mustPayToPubKeyAddress merchifyAdaAddress () $ Ada.lovelaceValueOf a --if the error originated with this last fx, this will create an infinite loop. Fix!
     ledgerTx <- submitTx tx
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
-    logInfo @String $ printf "made a gift of %d lovelace" amount
+    logInfo @String $ printf "made a gift of %d lovelace" a
 
-royaltyCheck :: Data.Aeson.Value -> Maybe [Royalties] -> Maybe IO (Bool)                          --decodes JSON and pulls the info 
+royaltyCheck :: Data.Aeson.Value -> Maybe IO ()       --decodes JSON and pulls the info 
 royaltyCheck redeemer = do           --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
     contents <- decode (readFile redeemer) :: Maybe [Royalties]
-    case contents of --what's the difference between logInfo @type, printf, print, and putStrLn? And why is mapM_ being used instead of mapM or map?
-        Just contents -> if checkValues contents then logInfo @String $ printf "validation completed, tx construction in proccess with the following parties as outputs..." >> PlutusTx.Prelude.mapM_ print contents >> give contents
-            else logInfo @String $ printf "Royalties don't add up to 100%" >> False >> returnChoice
-        _ -> logInfo @String $ printf "Royalties not formatted properly" >> print contents >> False >> returnChoice
+    case contents of --what's the difference between logInfo @type, print, and putStrLn? And why is mapM_ being used instead of mapM or map?
+        Just contents -> if checkValues contents then logInfo @String $ print "validation completed, tx construction in proccess with the following parties as outputs..." >> PlutusTx.Prelude.mapM_ print contents >> give contents
+            else logInfo @String $ print "Royalties don't add up to 100%"  >> returnChoice
+        _ -> logInfo @String $ print "Royalties not formatted properly" >> print contents >> returnChoice
 
-checkValues :: Maybe [Royalties] -> Maybe Bool
-checkValues [] = Nothing
+checkValues :: [Royalties] -> Bool
+checkValues [] = ()
 checkValues contents = sndList contents == 100.0
-
-count :: Eq a => a -> [a] -> Int
-count x =  length . Map.filter (==x)
 
 sndList :: [Royalties] -> percentage
 sndList = Map.foldl (\x (a,b) -> x + b) 0
 
 returnChoice :: IO ()
 returnChoice = do
-    response <- getChar "1 to return funds to server wallet, 2 to do nothing"
+    response <- getLine "1 to return funds to server wallet, 2 to do nothing"
     case response of
-        "1" -> giveBack
-        _ -> Nothing
+        "1" -> giveBack ()
+        _ -> Void
 
 merchifyAdaAddress :: Address
 merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
+
+
+-- count :: Eq a => a -> [a] -> Integer
+-- count x =  length . Map.filter (==x)
 
 -- grab :: AsContractError e => GiveParams -> Contract w s e () --not necessary in current implementation
 -- grab = do
