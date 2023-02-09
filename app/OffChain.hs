@@ -49,21 +49,20 @@ instance FromJSON Royalties where
     parseJSON invalid = prependFailure "parsing tx output info failed"
         (typeMismatch "Object" invalid)
 
-newtype GiveParams = GP {payments :: [Royalties]}
-                     deriving (Generic)
+type Payments = [Royalties]
 
 totalAdaAmnt :: TxInfo -> TxOut -> Integer
 totalAdaAmnt = let info = scriptContextTxInfo (sctx :: ScriptContext) in
     Map.foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)
 
-multiPayBuild :: GiveParams -> Constraints.TxConstraints i1 o1
+multiPayBuild :: Payments -> Constraints.TxConstraints i1 o1
 multiPayBuild (GP (payment : payments)) =
     Constraints.mustPayToPubKey (Royalties walletAddress) (Ada.lovelaceValueOf $ percToAda (Royalties percentage)) : multiPayBuild payments
 
 percToAda :: Float -> Integer
 percToAda perc = totalAdaAmnt * (perc * 0.01)
 
-give :: AsContractError e => GiveParams -> Contract w s e () --unlock
+give :: AsContractError e => Payments -> Contract w s e () --unlock
 give (GP payments) = do
     tx <- multiPayBuild GP payments
     ledgerTx <- submitTx tx --check what exactly to put with submitTxConstraints
@@ -72,7 +71,7 @@ give (GP payments) = do
         where sumAda = sndList $ percToAda $ snd payments
               sumWal = length $ PlutusTx.Prelude.map fst payments
 
-giveBack :: AsContractError e => GiveParams -> Contract w s e () --abort
+giveBack :: AsContractError e => Payments -> Contract w s e () --abort
 giveBack = do     --user initiated, this fx will return the ada value sent to it over to the server wallet, minus fees
     let a = totalAdaAmnt
     let tx = Constraints.mustPayToPubKey merchifyAdaAddress $ Ada.lovelaceValueOf a --if the error originated with this last fx, this will create an infinite loop. Fix!
@@ -82,18 +81,18 @@ giveBack = do     --user initiated, this fx will return the ada value sent to it
 
 royaltyCheck :: Data.Aeson.Value -> Maybe (IO String)     --decodes JSON and pulls the info 
 royaltyCheck redeemer = do           --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
-    contents <- decode (readFile redeemer) :: Maybe [Royalties]
+    contents <- decode (readFile redeemer) :: Maybe Payments
     case contents of --what's the difference between logInfo @type, print, and putStrLn? And why is mapM_ being used instead of mapM or map?
         Just contents -> if checkValues contents then logInfo @String $ print "validation completed, tx construction in proccess with the following parties as outputs..." >> PlutusTx.Prelude.mapM_ print contents >> give contents
             else logInfo @String $ print "Royalties don't add up to 100%"  >> returnChoice
         _ -> logInfo @String $ print "Royalties not formatted properly" >> print contents >> returnChoice
 
-checkValues :: [Royalties] -> Bool
+checkValues :: Payments -> Bool
 checkValues [] = ()
 checkValues contents = sndList contents == 100.0
 
-sndList :: [Royalties] -> percentage
-sndList = Map.foldl (\x (a,b) -> x + b) 0
+sndList :: Payments -> percentage
+sndList = map percentage
 
 returnChoice :: IO ()
 returnChoice = do
