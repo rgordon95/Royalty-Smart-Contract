@@ -53,12 +53,12 @@ newtype GiveParams = GP {payments :: [Royalties]}
                      deriving (Generic)
 
 totalAdaAmnt :: TxInfo -> TxOut -> Integer
-totalAdaAmnt = let info = scriptContextTxInfo sctx in
+totalAdaAmnt = let info = scriptContextTxInfo (sctx :: ScriptContext) in
     Map.foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)
 
-multiPayBuild :: GiveParams -> Constraints.TxConstraints i o
+multiPayBuild :: GiveParams -> Constraints.TxConstraints i1 o1
 multiPayBuild (GP (payment : payments)) =
-    Constraints.mustPayToPubKeyAddress (walletAddress) () (Ada.lovelaceValueOf $ percToAda (percentage)) : multiPayBuild payments
+    Constraints.mustPayToPubKey (Royalties walletAddress) (Ada.lovelaceValueOf $ percToAda (Royalties percentage)) : multiPayBuild payments
 
 percToAda :: Float -> Integer
 percToAda perc = totalAdaAmnt * (perc * 0.01)
@@ -66,7 +66,7 @@ percToAda perc = totalAdaAmnt * (perc * 0.01)
 give :: AsContractError e => GiveParams -> Contract w s e () --unlock
 give (GP payments) = do
     tx <- multiPayBuild GP payments
-    ledgerTx <- submitTxConstraints typedValidator tx --check what exactly to put with submitTxConstraints
+    ledgerTx <- submitTx tx --check what exactly to put with submitTxConstraints
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "distributed a total of %d lovelace to %d wallets" sumAda sumWal
         where sumAda = sndList $ percToAda $ snd payments
@@ -75,12 +75,12 @@ give (GP payments) = do
 giveBack :: AsContractError e => GiveParams -> Contract w s e () --abort
 giveBack = do     --user initiated, this fx will return the ada value sent to it over to the server wallet, minus fees
     let a = totalAdaAmnt
-    let tx = Constraints.mustPayToPubKeyAddress merchifyAdaAddress () $ Ada.lovelaceValueOf a --if the error originated with this last fx, this will create an infinite loop. Fix!
+    let tx = Constraints.mustPayToPubKey merchifyAdaAddress $ Ada.lovelaceValueOf a --if the error originated with this last fx, this will create an infinite loop. Fix!
     ledgerTx <- submitTx tx
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "made a gift of %d lovelace" a
 
-royaltyCheck :: Data.Aeson.Value -> Maybe IO ()       --decodes JSON and pulls the info 
+royaltyCheck :: Data.Aeson.Value -> Maybe (IO String)     --decodes JSON and pulls the info 
 royaltyCheck redeemer = do           --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
     contents <- decode (readFile redeemer) :: Maybe [Royalties]
     case contents of --what's the difference between logInfo @type, print, and putStrLn? And why is mapM_ being used instead of mapM or map?
@@ -102,8 +102,8 @@ returnChoice = do
         "1" -> giveBack ()
         _ -> Void
 
-merchifyAdaAddress :: Address
-merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
+merchifyAdaAddress :: Address -> PubKeyHash
+merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
 
 -- count :: Eq a => a -> [a] -> Integer

@@ -11,7 +11,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module OnChain (totalAdaAmnt) where
+module OnChain where
 
 import PlutusTx                       qualified
 import PlutusTx.Prelude               hiding (Semigroup(..), unless)
@@ -62,7 +62,7 @@ nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server walle
             totalAdaAmnt :: TxInfo -> TxOut -> Integer
             totalAdaAmnt = foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)    --wrap this in Contract w so it can be passed to any endpoint
 
-            merchifyAdaAddress :: Address
+            merchifyAdaAddress :: Address -> PubKeyHash
             merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
 royaltyValidator :: Scripts.Validator
@@ -74,10 +74,10 @@ royaltyValidator = Scripts.mkValidatorScript
 validator :: Validator
 validator = Scripts.validatorScript royaltyValidator
 
-scrAddress :: Ledger.Address
+scrAddress :: Address
 scrAddress = scriptAddress validator
 
-valHash :: Ledger.ValidatorHash
+valHash :: ValidatorHash
 valHash = Scripts.validatorHash validator
 
 serialized :: PlutusScript PlutusScriptV1
