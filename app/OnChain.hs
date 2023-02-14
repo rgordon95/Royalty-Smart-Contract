@@ -36,16 +36,9 @@ import Data.Void                      (Void)
 import Prelude                        (IO, Semigroup (..), String, Float, Show, Int)
 import Text.Printf                    (printf)
 
-import OffChain                       (royaltyCheck)
+import OffChain
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
-
-data Royalties = Royalties {walletAddress :: Address,
-                            percentage :: Float} 
-                            deriving (Show, FromJSON)
-
-makeLift ''Royalties
-makeIsDataIndexed ''Royalties [('Royalties, 0)]
 
 {-# INLINABLE nftRoyaltyValidator #-}
 nftRoyaltyValidator :: BuiltInData -> ScriptContext -> Bool
@@ -57,12 +50,20 @@ nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server walle
             txSignedBy TxInfo{txInfoSignatories} = let m = merchifyAdaAddress in 
                 elem m txInfoSignatories
 
+            royaltyCheck :: Data.Aeson.Value -> Maybe (IO String)     --decodes JSON and pulls the info 
+            royaltyCheck redeemer = do           --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
+                contents <- decode (readFile redeemer) :: Maybe Payments
+                case contents of --what's the difference between print, and putStrLn? And why is mapM_ being used instead of mapM or map?
+                    Just x -> if checkValues contents then logInfo @String $ "validation completed, tx construction in proccess with the following parties as outputs..." >> PlutusTx.Prelude.mapM_ print contents >> give contents
+                        else logInfo @String $ "Royalties don't add up to 100%"  >> returnChoice
+                    Nothing -> logInfo @String $ "Royalties not formatted properly" >> print contents >> returnChoice
+
             info = scriptContextTxInfo sctx
             
-            totalAdaAmnt :: TxInfo -> TxOut -> Integer
-            totalAdaAmnt = foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)    --wrap this in Contract w so it can be passed to any endpoint
+            totalAdaAmnt :: ScriptContext -> Integer
+            totalAdaAmnt info = foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)
 
-            merchifyAdaAddress :: Address -> PubKeyHash
+            merchifyAdaAddress :: Address -> Maybe PubKeyHash
             merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
 royaltyValidator :: Scripts.Validator

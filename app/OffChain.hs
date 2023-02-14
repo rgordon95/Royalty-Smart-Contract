@@ -10,6 +10,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 
 module OffChain where
 
@@ -33,43 +35,38 @@ import GHC.Generics                   (Generic)
 import Data.Map                       as Map
 import Data.Text                      (Text)
 import Data.Void                      (Void)
-import Prelude                        (IO, Semigroup (..), String, Float, Show, Int, readFile, print, getChar)
+import Prelude                        (IO, Semigroup (..), String, Float, Show, Int, readFile, print, getLine)
 import Text.Printf                    (printf)
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 data Royalties = Royalties {walletAddress :: Address,
                             percentage :: Float}
-                            deriving (Show, Generic)
+                            deriving (Show, Generic, FromJSON)
 
-instance FromJSON Royalties where
-    parseJSON (Object v) =  Royalties
-        <$> v .: "walletAddress"
-        <*> v .: "percentage"
-    parseJSON invalid = prependFailure "parsing tx output info failed"
-        (typeMismatch "Object" invalid)
+PlutusTx.makeLift ''Royalties
+PlutusTx.makeIsDataIndexed ''Royalties [('Royalties, 0)]
 
 type Payments = [Royalties]
 
-totalAdaAmnt :: TxInfo -> TxOut -> Integer
-totalAdaAmnt = let info = scriptContextTxInfo (sctx :: ScriptContext) in
-    Map.foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)
-
-multiPayBuild :: Payments -> Constraints.TxConstraints i1 o1
-multiPayBuild (GP (payment : payments)) =
-    Constraints.mustPayToPubKey (Royalties walletAddress) (Ada.lovelaceValueOf $ percToAda (Royalties percentage)) : multiPayBuild payments
+multiPayBuild :: Payments -> Constraints.TxConstraints i o
+multiPayBuild = PlutusTx.Prelude.map
+      (\ payment
+         -> Constraints.mustPayToPubKey
+              (toPubKeyHash $ walletAddress payment)
+              (Ada.lovelaceValueOf $ percToAda (percentage payment)))
 
 percToAda :: Float -> Integer
 percToAda perc = totalAdaAmnt * (perc * 0.01)
 
 give :: AsContractError e => Payments -> Contract w s e () --unlock
-give (GP payments) = do
-    tx <- multiPayBuild GP payments
+give payments = do
+    tx <- multiPayBuild payments
     ledgerTx <- submitTx tx --check what exactly to put with submitTxConstraints
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "distributed a total of %d lovelace to %d wallets" sumAda sumWal
-        where sumAda = sndList $ percToAda $ snd payments
-              sumWal = length $ PlutusTx.Prelude.map fst payments
+        where sumAda = sndList payments percToAda 
+              sumWal = length $ PlutusTx.Prelude.map fstList payments
 
 giveBack :: AsContractError e => Payments -> Contract w s e () --abort
 giveBack = do     --user initiated, this fx will return the ada value sent to it over to the server wallet, minus fees
@@ -79,31 +76,31 @@ giveBack = do     --user initiated, this fx will return the ada value sent to it
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "made a gift of %d lovelace" a
 
-royaltyCheck :: Data.Aeson.Value -> Maybe (IO String)     --decodes JSON and pulls the info 
-royaltyCheck redeemer = do           --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
-    contents <- decode (readFile redeemer) :: Maybe Payments
-    case contents of --what's the difference between logInfo @type, print, and putStrLn? And why is mapM_ being used instead of mapM or map?
-        Just contents -> if checkValues contents then logInfo @String $ print "validation completed, tx construction in proccess with the following parties as outputs..." >> PlutusTx.Prelude.mapM_ print contents >> give contents
-            else logInfo @String $ print "Royalties don't add up to 100%"  >> returnChoice
-        _ -> logInfo @String $ print "Royalties not formatted properly" >> print contents >> returnChoice
-
 checkValues :: Payments -> Bool
-checkValues [] = ()
+checkValues [] = []
 checkValues contents = sndList contents == 100.0
 
-sndList :: Payments -> percentage
-sndList = map percentage
+fstList :: Payments -> [walletAddress]
+fstList = PlutusTx.Prelude.map walletAddress
+
+sndList :: Payments -> [percentage]
+sndList = PlutusTx.Prelude.map percentage
 
 returnChoice :: IO ()
 returnChoice = do
-    response <- getLine "1 to return funds to server wallet, 2 to do nothing"
-    case response of
-        "1" -> giveBack ()
-        _ -> Void
+    response <- getLine "1 to return funds to server wallet, any other key to do nothing"
+    if response == "1" then giveBack else print ""
 
-merchifyAdaAddress :: Address -> PubKeyHash
+merchifyAdaAddress :: Address -> Maybe PubKeyHash
 merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
+
+-- instance FromJSON Royalties where -- is this necessary if FromJSON is already derived above?
+--     parseJSON (Object v) =  Royalties
+--         <$> v .: "walletAddress"
+--         <*> v .: "percentage"
+--     parseJSON invalid = prependFailure "parsing tx output info failed"
+--         (typeMismatch "Object" invalid)
 
 -- count :: Eq a => a -> [a] -> Integer
 -- count x =  length . Map.filter (==x)
