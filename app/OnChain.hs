@@ -1,6 +1,4 @@
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE DeriveGeneric  #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NoImplicitPrelude #-}
@@ -36,35 +34,42 @@ import Data.Void                      (Void)
 import Prelude                        (IO, Semigroup (..), String, Float, Show, Int)
 import Text.Printf                    (printf)
 
-import OffChain
+import Utils
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 {-# INLINABLE nftRoyaltyValidator #-}
 nftRoyaltyValidator :: BuiltInData -> ScriptContext -> Bool
 nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server wallet" txSignedBy sctx >>
-                             traceIfFalse "Royalty information incorrect, please reference above error msg" royaltyCheck redeemer >>
-                             totalAdaAmnt sctx
-        where
-            txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
-            txSignedBy TxInfo{txInfoSignatories} = let m = merchifyAdaAddress in 
-                elem m txInfoSignatories
+        traceIfFalse "Royalty information incorrect, please reference above error msg" royaltyCheck redeemer >>
+        totalAdaAmnt (info sctx)
+    where
+        txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
+        txSignedBy TxInfo{txInfoSignatories} = let m = merchifyPubKeyHash in 
+            elem m txInfoSignatories
 
-            royaltyCheck :: Data.Aeson.Value -> Maybe (IO String)     --decodes JSON and pulls the info 
-            royaltyCheck redeemer = do           --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
-                contents <- decode (readFile redeemer) :: Maybe Payments
-                case contents of --what's the difference between print, and putStrLn? And why is mapM_ being used instead of mapM or map?
-                    Just x -> if checkValues contents then logInfo @String $ "validation completed, tx construction in proccess with the following parties as outputs..." >> PlutusTx.Prelude.mapM_ print contents >> give contents
-                        else logInfo @String $ "Royalties don't add up to 100%"  >> returnChoice
-                    Nothing -> logInfo @String $ "Royalties not formatted properly" >> print contents >> returnChoice
+        royaltyCheck :: Data.Aeson.Value -> Maybe (IO String)     --decodes JSON and pulls the info 
+        royaltyCheck redeemer = do           --If successful, and the %s add up to 100, it saves the %s and their addresses to a list of tuples and returns true, otherwise false
+            contents <- decode (readFile redeemer) :: Maybe Payments
+            case contents of --what's the difference between print, and putStrLn? And why is mapM_ being used instead of mapM or map?
+                Just x -> if checkValues contents then logInfo @String $ "validation completed, tx construction in proccess with the following parties as outputs..." >> PlutusTx.Prelude.mapM_ print contents >> give contents
+                    else logInfo @String $ "Royalties don't add up to 100%"  >> returnChoice
+                Nothing -> logInfo @String $ "Royalties not formatted properly" >> print contents >> returnChoice
 
-            info = scriptContextTxInfo sctx
-            
-            totalAdaAmnt :: ScriptContext -> Integer
-            totalAdaAmnt info = foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)
+        info :: ScriptContext -> TxInfo
+        info = scriptContextTxInfo
 
-            merchifyAdaAddress :: Address -> Maybe PubKeyHash
-            merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
+        checkValues :: Payments -> Bool
+        checkValues [] = []
+        checkValues contents = sndList contents == 100.0
+
+        merchifyAdaAddress :: Address
+        merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
+        
+        merchifyPubKeyHash :: Address -> PubKeyHash
+        merchifyPubKeyHash = PlutusTx.Prelude.fromMaybe (error "invalid payment pub key hash")
+            . toPubKeyHash merchifyAdaAddress
+
 
 royaltyValidator :: Scripts.Validator
 royaltyValidator = Scripts.mkValidatorScript 
@@ -72,14 +77,11 @@ royaltyValidator = Scripts.mkValidatorScript
     where
         royaltyWrapped = wrap nftRoyaltyValidator
 
-validator :: Validator
-validator = Scripts.validatorScript royaltyValidator
+valHash :: ValidatorHash
+valHash = Scripts.validatorHash royaltyValidator
 
 scrAddress :: Address
-scrAddress = scriptAddress validator
-
-valHash :: ValidatorHash
-valHash = Scripts.validatorHash validator
+scrAddress = scriptAddress valHash
 
 serialized :: PlutusScript PlutusScriptV1
 serialized = PlutusScriptSerialised . BSS.toShort . BSL.toStrict . serialise $ royaltyValidator

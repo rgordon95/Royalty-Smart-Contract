@@ -1,6 +1,4 @@
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE DeriveGeneric  #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NoImplicitPrelude #-}
@@ -38,62 +36,52 @@ import Data.Void                      (Void)
 import Prelude                        (IO, Semigroup (..), String, Float, Show, Int, readFile, print, getLine)
 import Text.Printf                    (printf)
 
+import Utils
+
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-data Royalties = Royalties {walletAddress :: Address,
-                            percentage :: Float}
-                            deriving (Show, Generic, FromJSON)
+toPaymentPubKeyHash :: Address -> PaymentPubKeyHash
+toPaymentPubKeyHash addr = toPubKeyHash addr $ PaymentPubKeyHash . PlutusTx.Prelude.fromMaybe (error "invalid payment pub key hash")
 
-PlutusTx.makeLift ''Royalties
-PlutusTx.makeIsDataIndexed ''Royalties [('Royalties, 0)]
-
-type Payments = [Royalties]
-
-multiPayBuild :: Payments -> Constraints.TxConstraints i o
-multiPayBuild = PlutusTx.Prelude.map
-      (\ payment
-         -> Constraints.mustPayToPubKey
-              (toPubKeyHash $ walletAddress payment)
-              (Ada.lovelaceValueOf $ percToAda (percentage payment)))
-
-percToAda :: Float -> Integer
+percToAda :: Integer -> Integer
 percToAda perc = totalAdaAmnt * (perc * 0.01)
 
-give :: AsContractError e => Payments -> Contract w s e () --unlock
+multiPayBuild :: Payments -> [Constraints.TxConstraints i o]
+multiPayBuild = 
+    let pkey = toPaymentPubKeyHash $ walletAddress payment in
+    PlutusTx.Prelude.map
+      (\ payment
+         -> Constraints.mustPayToPubKey pkey
+             (Ada.lovelaceValueOf $ percToAda (percentage payment)))
+
+give :: AsContractError e => Payments -> [Constraints.TxConstraints i o] -> Contract w s e () --unlock
 give payments = do
     tx <- multiPayBuild payments
     ledgerTx <- submitTx tx --check what exactly to put with submitTxConstraints
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "distributed a total of %d lovelace to %d wallets" sumAda sumWal
-        where sumAda = sndList payments percToAda 
-              sumWal = length $ PlutusTx.Prelude.map fstList payments
+        where sumAda = percToAda . sndList payments
+              sumWal = length $ fstList payments
 
 giveBack :: AsContractError e => Payments -> Contract w s e () --abort
 giveBack = do     --user initiated, this fx will return the ada value sent to it over to the server wallet, minus fees
     let a = totalAdaAmnt
-    let tx = Constraints.mustPayToPubKey merchifyAdaAddress $ Ada.lovelaceValueOf a --if the error originated with this last fx, this will create an infinite loop. Fix!
+    let pkey = toPaymentPubKeyHash merchifyAdaAddress
+    let tx = Constraints.mustPayToPubKey pkey $ Ada.lovelaceValueOf a --if the error originated with this last fx, this will create an infinite loop. Fix!
     ledgerTx <- submitTx tx
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "made a gift of %d lovelace" a
-
-checkValues :: Payments -> Bool
-checkValues [] = []
-checkValues contents = sndList contents == 100.0
-
-fstList :: Payments -> [walletAddress]
-fstList = PlutusTx.Prelude.map walletAddress
-
-sndList :: Payments -> [percentage]
-sndList = PlutusTx.Prelude.map percentage
 
 returnChoice :: IO ()
 returnChoice = do
     response <- getLine "1 to return funds to server wallet, any other key to do nothing"
     if response == "1" then giveBack else print ""
 
-merchifyAdaAddress :: Address -> Maybe PubKeyHash
-merchifyAdaAddress = toPubKeyHash "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
+merchifyAdaAddress :: Address
+merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
 
+-- totalAdaAmnt :: ScriptContext -> Integer
+-- totalAdaAmnt info = PlutusTx.Prelude.foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)
 
 -- instance FromJSON Royalties where -- is this necessary if FromJSON is already derived above?
 --     parseJSON (Object v) =  Royalties
