@@ -13,7 +13,6 @@ module OnChain where
 
 import PlutusTx                       qualified
 import PlutusTx.Prelude               hiding (Semigroup(..), unless)
-import PlutusTx.Builtins              qualified as Builtins
 
 import Ledger                         hiding (singleton)
 import Ledger.Constraints             qualified as Constraints
