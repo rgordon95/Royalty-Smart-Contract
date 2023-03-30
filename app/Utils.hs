@@ -34,13 +34,13 @@ data Royalties = Royalties {walletAddress :: Address,
 PlutusTx.makeIsDataIndexed ''Royalties [('Royalties, 0)]
 
 type Payments = [Royalties]
-
+--Get the total amount of Ada sent to contract in previous Tx
 totalAdaAmnt :: TxInfo -> Integer 
 totalAdaAmnt info = 
-    let outputs = txInfoOutputs info
-        valueSum = foldMap (Ledger.txOutValue . Ledger.TxOut) outputs
+    let valueSum = foldMap (Ledger.txOutValue . Ledger.TxOut) (txInfoOutputs info)
     in valueOf valueSum Ada.adaSymbol Ada.adaToken
 
+--Save all the Addresses and % shares to separate lists
 fstList :: Payments -> [Address]
 fstList = map walletAddress
 

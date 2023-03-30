@@ -38,13 +38,16 @@ import Text.Printf                    (printf)
 import Utils
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
-
+merchifyAdaAddress :: Address
+merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
+--Takes the Address above and turns it 
 toPaymentPubKeyHash :: Address -> PaymentPubKeyHash
-toPaymentPubKeyHash addr = toPubKeyHash addr $ PaymentPubKeyHash . PlutusTx.Prelude.fromMaybe (error "invalid payment pub key hash")
-
+toPaymentPubKeyHash addr = toPubKeyHash addr $ PaymentPubKeyHash . 
+        PlutusTx.Prelude.fromMaybe (error "invalid payment pub key hash")
+--Turns a % share into an actual Ada amount
 percToAda :: Integer -> Integer
 percToAda perc = totalAdaAmnt * (perc * 0.01)
-
+--Creates the TxConstraints to send payment to multiple recipient wallets
 multiPayBuild :: Payments -> [Constraints.TxConstraints i o]
 multiPayBuild = 
     let pkey = toPaymentPubKeyHash $ walletAddress payment in
@@ -52,8 +55,9 @@ multiPayBuild =
       (\ payment
          -> Constraints.mustPayToPubKey pkey
              (Ada.lovelaceValueOf $ percToAda (percentage payment)))
-
-give :: AsContractError e => Payments -> [Constraints.TxConstraints i o] -> Contract w s e () --unlock
+give :: AsContractError e => Payments -> 
+        [Constraints.TxConstraints i o] -> 
+            Contract w s e () --unlock
 give payments = do
     tx <- multiPayBuild payments
     ledgerTx <- submitTx tx --check what exactly to put with submitTxConstraints
@@ -61,58 +65,17 @@ give payments = do
     logInfo @String $ printf "distributed a total of %d lovelace to %d wallets" sumAda sumWal
         where sumAda = percToAda . sndList payments
               sumWal = length $ fstList payments
-
-giveBack :: AsContractError e => Payments -> Contract w s e () --abort
-giveBack = do     --user initiated, this fx will return the ada value sent to it over to the server wallet, minus fees
+--user initiated, this fx will return the ada value sent to it over to the server wallet, minus fees
+giveBack :: AsContractError e => Payments -> Contract w s e ()
+giveBack = do
     let a = totalAdaAmnt
     let pkey = toPaymentPubKeyHash merchifyAdaAddress
-    let tx = Constraints.mustPayToPubKey pkey $ Ada.lovelaceValueOf a --if the error originated with this last fx, this will create an infinite loop. Fix!
+    let tx = Constraints.mustPayToPubKey pkey $ Ada.lovelaceValueOf a
     ledgerTx <- submitTx tx
     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
     logInfo @String $ printf "made a gift of %d lovelace" a
-
+--called after any error occurs, gives user the choice whether to return funds or not
 returnChoice :: IO ()
 returnChoice = do
     response <- getLine "1 to return funds to server wallet, any other key to do nothing"
     if response == "1" then giveBack else print ""
-
-merchifyAdaAddress :: Address
-merchifyAdaAddress = "addr1q9j43yrfh5fku4a4m6cn4k3nhfy0tqupqsrvnn5mac9gklw820s3cqy4eleppdwr22ce66zjhl90xp3jv7ukygjmzdzqmzed2e"
-
--- totalAdaAmnt :: ScriptContext -> Integer
--- totalAdaAmnt info = PlutusTx.Prelude.foldl (\txOut -> valueOf (txOutValue txOut) "" "") 0 (txInfoOutputs info)
-
--- instance FromJSON Royalties where -- is this necessary if FromJSON is already derived above?
---     parseJSON (Object v) =  Royalties
---         <$> v .: "walletAddress"
---         <*> v .: "percentage"
---     parseJSON invalid = prependFailure "parsing tx output info failed"
---         (typeMismatch "Object" invalid)
-
--- count :: Eq a => a -> [a] -> Integer
--- count x =  length . Map.filter (==x)
-
--- grab :: AsContractError e => GiveParams -> Contract w s e () --not necessary in current implementation
--- grab = do
---     utxos <- utxosAt merchifyAdaAddress                                                                      -- This will find all UTXOs that sit at the script address
---     let orefs   = fst <$> Map.toList utxos                                                           -- This get all the references of the UTXOs
---         lookups = Constraints.unspentOutputs utxos      <>                                           -- Tell where to find all the UTXOS
---                   Constraints.otherScript validator                                                  -- and inform about the actual validator (the spending tx needs to provide the actual validator)
---         tx :: Constraints.TxConstraints Void Void
---         tx      = mconcat [mustSpendScriptOutput oref $ Redeemer $ Builtins.mkI 17 | oref <- orefs]  -- Define the TX giving constrains, one for each UTXO sitting on this addrs,
---                                                                                                      -- must provide a redeemer (ignored in this case)
---     ledgerTx <- submitTxConstraintsWith @Void lookups tx                                             -- Allow the wallet to construct the tx with the necesary information
---     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx                                                -- Wait for confirmation
---     logInfo @String $ "replenished funds"
-
--- grab :: forall w s e. AsContractError e => Contract w s e ()
--- grab = do
---     utxos <- utxosAt scrAddress
---     let orefs   = fst <$> Map.toList utxos
---         lookups = Constraints.unspentOutputs utxos  <>
---                   Constraints.otherScript validator
---         tx :: Constraints.TxConstraints Void Void
---         tx = mconcat [mustSpendScriptOutput oref $ arbitrary redeemer # | oref <- orefs]
-
---     ledgerTx <- submitTxConstraintsWith @Void lookups tx
---     void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
