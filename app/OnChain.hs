@@ -42,7 +42,7 @@ import Utils
 nftRoyaltyValidator :: BuiltInData -> ScriptContext -> Bool
 nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server wallet" txSignedBy sctx >>
     traceIfFalse "Royalty information incorrect, please reference above error msg" royaltyCheck redeemer >>
-    totalAdaAmnt (info sctx)
+    totalAdaAmnt sctx
     where
     txSignedBy :: TxInfo -> [PubKeyHash] -> Bool
     txSignedBy TxInfo{txInfoSignatories} = let m = merchifyPubKeyHash in 
@@ -53,12 +53,16 @@ nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server walle
     royaltyCheck redeemer = do
         contents <- decode (readFile redeemer) :: Maybe Payments
         case contents of --what's the difference between print, and putStrLn? And why is mapM_ being used instead of mapM or map?
-            Just x -> if checkValues contents then logInfo @String $ "validation completed, tx construction in proccess with the following parties as outputs..." 
-                >> PlutusTx.Prelude.for_ contents print >> give contents else logInfo @String $ "Royalties don't add up to 100%"  >> returnChoice
+            Just x -> if checkValues contents then 
+                logInfo @String $ "validation completed, tx construction in proccess with the following parties as outputs..." 
+                >> PlutusTx.Prelude.for_ contents print 
+                >> give contents else 
+                    logInfo @String $ "Royalties don't add up to 100%"  
+                    >> returnChoice
             Nothing -> logInfo @String $ "Royalties not formatted properly" >> print contents >> returnChoice
 
-    info :: ScriptContext -> TxInfo
-    info = scriptContextTxInfo
+    -- info :: ScriptContext -> TxInfo
+    -- info = scriptContextTxInfo
 
     checkValues :: Payments -> Bool
     checkValues contents = isOneHundred contents && all isString (fstList contents)
@@ -67,9 +71,9 @@ nftRoyaltyValidator _ redeemer sctx = traceIfFalse "Tx must include server walle
     isOneHundred a = sum (sndList a) == 100.0
 
     isString :: (IsString a) => a -> Bool
-    isString x = case fromString (toStr x) of
-                    Nothing -> False
-                    _ -> True
+    isString x = case toStr x of
+        Nothing -> False
+        _ -> True
         where
         toStr = fromString . toString
 

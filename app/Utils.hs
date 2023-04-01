@@ -3,6 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Utils where
 
@@ -24,7 +25,6 @@ import Plutus.Contract
 import Data.Aeson                     
 import GHC.Generics                   (Generic)
 
-
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 data Royalties = Royalties {walletAddress :: Address,
@@ -36,10 +36,9 @@ PlutusTx.makeIsDataIndexed ''Royalties [('Royalties, 0)]
 type Payments = [Royalties]
 --Get the total amount of Ada sent to contract in previous Tx
 totalAdaAmnt :: TxInfo -> Integer 
-totalAdaAmnt info = 
-    let valueSum = foldMap (Ledger.txOutValue . Ledger.TxOut) (txInfoOutputs info)
+totalAdaAmnt TxInfo{txInfoOutputs} = 
+    let valueSum = foldMap (Ledger.txOutValue . Ledger.TxOut) txInfoOutputs
     in valueOf valueSum Ada.adaSymbol Ada.adaToken
-
 --Save all the Addresses and % shares to separate lists
 fstList :: Payments -> [Address]
 fstList = map walletAddress
